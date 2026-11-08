@@ -1,49 +1,37 @@
+<div align="center">
+
 # gh-profile-kit
 
-[English](#english) · [中文](#中文)
+Paint text or pixel art into a past year of your GitHub contribution graph.
 
-## English
+**English** · [中文](README.zh-CN.md)
 
-### Paint a past year
+<img src="docs/demo-en.gif" width="720" alt="Typing BORN, adding a heart, drawing a few dots">
 
-**[Open the painter →](https://theowang42.github.io/gh-profile-kit/)**
+### [Open the painter →](https://theowang42.github.io/gh-profile-kit/)
+
+</div>
+
+## Three clicks
 
 1. Pick a year. Type, click a shape, or draw.
 2. Click **Create this repo on GitHub**.
 3. Click **Create repository**.
 
-It paints itself in about a minute. Undo: delete the repo.
+About a minute later, that year on your profile shows the drawing.
 
-### Profile page
+## Safe by design
+
+- **Past years only.** 1970 to last year. Today's square is never touched.
+- **One painting, one repo.** Undo: delete the repo. The graph may take a while to update.
+- **Nothing to install, nothing to grant.** No login, no token, no server. It can only write to the repo it lives in.
+- **Readable.** About 120 lines of Python. Actions pinned to commit hashes. MIT licensed.
+
+## Profile page
 
 1. **Use this template**. Name the repo exactly your username. Public.
 2. Edit `profile.toml`.
 
-### What it can't do
-
-Touch other repos, your account, or your computer. It only writes to the repo it's in.
-
-## 中文
-
-### 在过去某一年画画
-
-**[打开画板 →](https://theowang42.github.io/gh-profile-kit/)**
-
-1. 选年份。打字、点预设或手画。
-2. 点 **在 GitHub 建这个仓库**。
-3. 点 **Create repository**。
-
-约一分钟后自动画好。撤销：删掉仓库。
-
-### 主页
-
-1. **Use this template**，仓库名和你的用户名一样，Public。
-2. 改 `profile.toml`。
-
-### 它做不到的事
-
-碰你的其他仓库、账号或电脑。它只能写自己所在的这个仓库。
-
 ---
 
-Inspired by [gitfiti](https://github.com/gelstudios/gitfiti).
+<sub>Inspired by [gitfiti](https://github.com/gelstudios/gitfiti).</sub>

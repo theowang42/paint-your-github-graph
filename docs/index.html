@@ -40,6 +40,7 @@
     padding: 4px 10px; cursor: pointer;
   }
   .btn:hover { color: var(--fg); }
+  .btn:disabled { opacity: .4; cursor: default; }
   .ghead { min-height: 1.6em; margin-bottom: 8px; }
   .ghead.err { color: var(--err); }
   .legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 8px; }
@@ -75,6 +76,7 @@
   </div>
   <div class="tools" id="tools">
     <span class="small" data-t="brush"></span>
+    <button class="btn" id="undo" data-t="undo"></button>
     <button class="btn" id="clear" data-t="clear"></button>
   </div>
 
@@ -146,7 +148,7 @@ const STR = {
     badChar: (c) => `Unsupported character: ${c}`, tooWide: (w, m) => `Too wide: ${w} columns, max ${m}.`,
     badYear: (m) => `Year must be 1970–${m}.`, outside: () => "Some cells fall outside this year.",
     empty: () => "Empty.", noRoom: () => "No room left.", tooBig: () => "Too detailed to fit. Simplify the drawing.",
-    eraser: "Eraser", level: (n) => `Level ${n}`, other: "中文",
+    undo: "Undo", level: (n) => `Level ${n}. Click a lit cell of this shade to erase it.`, other: "中文",
   },
   zh: {
     title: "在 GitHub 格子的过去某一年画画。", year: "年份", text: "文字",
@@ -160,22 +162,23 @@ const STR = {
     badChar: (c) => `不支持的字符：${c}`, tooWide: (w, m) => `太宽：${w} 列，最多 ${m} 列。`,
     badYear: (m) => `年份要在 1970–${m}。`, outside: () => "有格子不在这一年里。",
     empty: () => "还是空的。", noRoom: () => "放不下了。", tooBig: () => "太复杂，放不进去。简化一点。",
-    eraser: "橡皮", level: (n) => `深浅 ${n}`, other: "EN",
+    undo: "撤销", level: (n) => `深浅 ${n}。点同样深浅的格子会擦掉它。`, other: "EN",
   },
 };
 let lang = "en";
 try { lang = localStorage.getItem("lang") || (navigator.language.startsWith("zh") ? "zh" : "en"); } catch {}
 const L = () => STR[lang];
-// 错误存成 [key, ...参数]，切换语言时能重新翻译
-const err = (key, ...a) => { const e = new Error(key); e.args = [key, ...a]; return e; };
 const say = (e) => (e ? L()[e[0]](...e.slice(1)) : "");
 
-// 画布状态：key = "列,行"，value = 深浅 1-4。列 0 = 包含 1 月 1 日的那一周。
-let cells = new Map();
-let fromText = true;   // 当前格子是不是完全由文字生成的
+// ── 状态 ──────────────────────────────────────────────
+// 一排「段」：先是文字，后面是点过的预设，段之间空两列，整体居中。
+// 手画的笔画存成相对这排左边缘的位置，所以改文字、加预设时笔画跟着走。
+let shapes = [];          // 预设名
+let edits = new Map();    // "相对列,行" -> 深浅（0 = 擦掉）
 let brush = 4;
-let stamps = [];       // 点过的预设名，用来起仓库名
-let fault = null;      // 当前错误 [key, ...参数]
+let history = [], lastKind = "";
+
+const year = () => parseInt($("year").value, 10);
 
 // "i heart u" / "I <3 U" -> ["I", "♥", "U"]
 function words(raw) {
@@ -183,58 +186,116 @@ function words(raw) {
     .map((w) => (w === "HEART" ? "♥" : w));
 }
 
-function rows(text) {
+// 文字 -> 7 行像素（# = 4）；不支持的字符抛 ["badChar", ch]
+function textRows(w) {
   const out = ["", "", "", "", "", "", ""];
-  [...text].forEach((ch, i) => {
+  [...w.join(" ")].forEach((ch, i) => {
     const g = FONT[ch];
-    if (!g) throw err("badChar", ch);
-    for (let r = 0; r < 7; r++) out[r] += (i ? "." : "") + g[r];
+    if (!g) throw ["badChar", ch];
+    for (let r = 0; r < 7; r++) out[r] += (i ? "0" : "") + g[r].replace(/#/g, "4").replace(/\./g, "0");
   });
   return out;
 }
 
 // 用 UTC 计算日期，避免时区把格子挪一天
-function grid(year) {
-  const jan1 = Date.UTC(year, 0, 1);
+function grid(y) {
+  const jan1 = Date.UTC(y, 0, 1);
   const start = jan1 - new Date(jan1).getUTCDay() * DAY;
-  const weeks = Math.floor((Date.UTC(year, 11, 31) - start) / DAY / 7) + 1;
+  const weeks = Math.floor((Date.UTC(y, 11, 31) - start) / DAY / 7) + 1;
   return { start, weeks };
 }
-const inYear = (year, c, r) => new Date(grid(year).start + (c * 7 + r) * DAY).getUTCFullYear() === year;
+const inYear = (y, c, r) => new Date(grid(y).start + (c * 7 + r) * DAY).getUTCFullYear() === y;
 
-// 文字 -> 居中的格子（和 paint.py 的 plan() 一样）
-function textCells(year, w) {
-  const r = rows(w.join(" "));
-  const width = Math.max(...r.map((x) => x.length));
-  const { weeks } = grid(year);
-  if (width > weeks - 2) throw err("tooWide", width, weeks - 2);
-  const off = Math.floor((weeks - width) / 2);
-  const m = new Map();
-  r.forEach((line, row) => [...line].forEach((ch, c) => { if (ch === "#") m.set(`${off + c},${row}`, 4); }));
-  return m;
+// 把所有段排成一排：返回 { rows, error }
+function strip(textValue = $("text").value, list = shapes) {
+  const segs = [];
+  let error = null;
+  const w = words(textValue);
+  if (w.length) { try { segs.push(textRows(w)); } catch (e) { error = e; } }
+  list.forEach((id) => segs.push(PRESETS[id]));
+  const rows = ["", "", "", "", "", "", ""];
+  segs.forEach((seg, i) => { for (let r = 0; r < 7; r++) rows[r] += (i ? "00" : "") + seg[r]; });
+  return { rows, error };
 }
 
-// 和 paint.py 的 parse_pattern() 对应："起始列:行0/行1/.../行6"，每格 0-4
-function patternCode() {
+// 这排的左边缘在哪一列（居中）；空的时候是 0，笔画就是绝对位置
+function origin(y, rows) {
+  const width = rows[0].length;
+  return width ? Math.floor((grid(y).weeks - width) / 2) : 0;
+}
+
+// 最终格子 + 错误
+function compose() {
+  const y = year(), thisYear = new Date().getFullYear();
+  if (!(y >= 1970 && y < thisYear)) return { cells: new Map(), error: ["badYear", thisYear - 1] };
+  const { rows, error } = strip();
+  const { weeks } = grid(y);
+  if (rows[0].length > weeks - 2) return { cells: new Map(), error: ["tooWide", rows[0].length, weeks - 2] };
+  const o = origin(y, rows), cells = new Map();
+  rows.forEach((line, r) => [...line].forEach((ch, c) => { if (+ch) cells.set(`${o + c},${r}`, +ch); }));
+  edits.forEach((v, k) => {
+    const [c, r] = k.split(",").map(Number), key = `${o + c},${r}`;
+    if (v) cells.set(key, v); else cells.delete(key);
+  });
+  let e = error;
+  if (!e && [...cells.keys()].some((k) => { const [c, r] = k.split(",").map(Number); return !inYear(y, c, r); })) e = ["outside"];
+  if (!e && !cells.size) e = ["empty"];
+  return { cells, error: e, origin: o };
+}
+
+// 图案码："起始列:行0/.../行6"，每格 0-4，连续 4 个以上写成 "0(12)"
+function patternCode(cells) {
   const cols = [...cells.keys()].map((k) => +k.split(",")[0]);
-  const lo = Math.min(...cols), hi = Math.max(...cols);
-  const out = [];
+  const lo = Math.min(...cols), hi = Math.max(...cols), out = [];
   for (let r = 0; r < 7; r++) {
     let s = "";
     for (let c = lo; c <= hi; c++) s += cells.get(`${c},${r}`) || 0;
-    // 连续 4 个以上同样的数字写成 "0(12)"，让图案码塞得进仓库简介
     out.push(s.replace(/([0-4])\1{3,}/g, (m) => `${m[0]}(${m.length})`));
   }
   return `${lo}:${out.join("/")}`;
 }
 
-function draw(year) {
-  const { start, weeks } = grid(year);
+// ── 改动 + 撤销 ────────────────────────────────────────
+// prevText = 上一次改动后的文字（输入框此刻可能已经是新文字了）
+let prevText = "";
+const snapshot = () => JSON.stringify({ text: prevText, shapes, edits: [...edits] });
+function restore(json) {
+  const st = JSON.parse(json);
+  $("text").value = prevText = st.text; shapes = st.shapes; edits = new Map(st.edits);
+}
+// 每次改动都走这里：存一份撤销点；从「空」变「有」时笔画换算成新位置，保持不动
+function change(kind, fn) {
+  if (!(kind === lastKind && (kind === "type" || kind === "year"))) {
+    history.push(snapshot());
+    if (history.length > 200) history.shift();
+  }
+  lastKind = kind;
+  const y = year(), before = strip(prevText).rows, o1 = origin(y, before);
+  fn();
+  const after = strip().rows, o2 = origin(y, after);
+  if (!before[0].length !== !after[0].length && o1 !== o2) {
+    edits = new Map([...edits].map(([k, v]) => { const [c, r] = k.split(",").map(Number); return [`${c + o1 - o2},${r}`, v]; }));
+  }
+  prevText = $("text").value;
+  render();
+}
+function undo() {
+  if (!history.length) return;
+  restore(history.pop());
+  lastKind = "";
+  render();
+}
+
+// ── 画面 ──────────────────────────────────────────────
+let current = new Map();   // 当前显示的格子，给鼠标用
+
+function draw(y, cells) {
+  const { start, weeks } = grid(y);
   let s = L().days.map((d, i) => `<text x="0" y="${TOP + (2 * i + 1) * STEP + 8}">${d}</text>`).join(""), month = -1;
   for (let c = 0; c < weeks; c++) {
     for (let r = 0; r < 7; r++) {
       const d = new Date(start + (c * 7 + r) * DAY);
-      if (d.getUTCFullYear() !== year) continue;
+      if (d.getUTCFullYear() !== y) continue;
       if (r === 0 && d.getUTCDate() <= 7 && d.getUTCMonth() !== month) {
         month = d.getUTCMonth();
         s += `<text x="${LEFT + c * STEP}" y="10">${L().months[month]}</text>`;
@@ -246,63 +307,37 @@ function draw(year) {
   $("svg").innerHTML = s;
 }
 
-function currentYear() { return parseInt($("year").value, 10); }
-
-// 文字改了：用文字重新生成格子（会覆盖手画的）
-function fromTextInput() {
-  const year = currentYear(), w = words($("text").value);
-  fromText = true;
-  stamps = [];
-  try {
-    cells = w.length && year >= 1970 ? textCells(year, w) : new Map();
-    fault = null;
-  } catch (e) {
-    cells = new Map();
-    fault = e.args;
-  }
-  render();
-}
-
 function render() {
-  const year = currentYear(), thisYear = new Date().getFullYear();
-  const w = words($("text").value);
-  const msg = $("msg"), go = $("go");
-  let e = fault;
-  const yearOk = year >= 1970 && year < thisYear;
-  if (!yearOk) e = ["badYear", thisYear - 1];
-  else draw(year);
+  const y = year(), msg = $("msg"), go = $("go");
+  let { cells, error } = compose();
+  current = cells;
+  if (y >= 1970 && y < new Date().getFullYear()) draw(y, cells);
 
-  if (yearOk && !e) {
-    const outside = [...cells.keys()].some((k) => { const [c, r] = k.split(",").map(Number); return !inYear(year, c, r); });
-    if (outside) e = ["outside"];
-    else if (!cells.size) e = ["empty"];
-  }
-  const commits = [...cells.values()].reduce((a, b) => a + b, 0);
-
-  // 纯文字：仓库名就够了。手画过：仓库名只是个名字，另外给图案码
-  // 仓库名只能用英文和数字；文字不合法时退回 "art"
-  const parts = w.map((x) => (x === "♥" ? "heart" : x.toLowerCase()));
+  // 仓库名：文字（只用英文和数字）+ 预设名；都没有就叫 art
+  const parts = words($("text").value).map((x) => (x === "♥" ? "heart" : x.toLowerCase()));
   const textOk = parts.every((x) => /^[a-z0-9]+$/.test(x));
-  const label = [...(textOk ? parts : []), ...stamps].join("-").slice(0, 60).replace(/-+$/, "") || "art";
-  const name = `${year}-${label}`;
-  // 不是纯文字时，图案码放进仓库简介（最多 350 字）；建仓库时工作流从这里读
-  let description = `Time paint ${year}`;
-  if (!e && !fromText) description += ` · ${patternCode()}`;
-  if (!e && description.length > 350) e = ["tooBig"];
-  const ok = !e;
-  msg.textContent = ok ? L().count(commits, year, cells.size) : say(e);
-  msg.className = ok ? "ghead" : "ghead err";
-  $("repo").textContent = ok ? name : "—";
-  go.setAttribute("aria-disabled", String(!ok));
+  const label = [...(textOk ? parts : []), ...shapes].join("-").slice(0, 60).replace(/-+$/, "") || "art";
+  const name = `${y}-${label}`;
+  // 图案码放进仓库简介（最多 350 字）；建仓库时工作流从这里读
+  const description = error ? "" : `Time paint ${y} · ${patternCode(cells)}`;
+  if (!error && description.length > 350) error = ["tooBig"];
+
+  const commits = [...cells.values()].reduce((a, b) => a + b, 0);
+  msg.textContent = error ? say(error) : L().count(commits, y, cells.size);
+  msg.className = error ? "ghead err" : "ghead";
+  $("repo").textContent = error ? "—" : name;
+  $("undo").disabled = !history.length;
+  go.setAttribute("aria-disabled", String(!!error));
   go.href = "https://github.com/new?" + new URLSearchParams({
     template_owner: TEMPLATE_OWNER, template_name: TEMPLATE_NAME,
     name, visibility: "public", description,
   });
 }
 
-// 笔：4 种绿色 + 橡皮
+// ── 控件 ──────────────────────────────────────────────
+// 笔：4 种绿色。点一个已经是这种深浅的格子 = 擦掉
 const tools = $("tools");
-[4, 3, 2, 1, 0].forEach((lv) => {
+[4, 3, 2, 1].forEach((lv) => {
   const b = document.createElement("button");
   b.className = "sw";
   b.style.background = COLORS[lv];
@@ -312,63 +347,60 @@ const tools = $("tools");
     brush = lv;
     tools.querySelectorAll(".sw").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   };
-  tools.insertBefore(b, $("clear"));
+  tools.insertBefore(b, $("undo"));
 });
-$("clear").onclick = () => { cells = new Map(); stamps = []; $("text").value = ""; fromText = false; fault = null; render(); };
+$("undo").onclick = undo;
+$("clear").onclick = () => change("clear", () => { $("text").value = ""; shapes = []; edits = new Map(); });
 
-// 点预设：接在已有内容右边（空两列），然后整体居中
-function stamp(id) {
-  const year = currentYear(), { weeks } = grid(year), art = PRESETS[id];
-  const cols = [...cells.keys()].map((k) => +k.split(",")[0]);
-  const base = cols.length ? Math.max(...cols) + 3 : 0;
-  const next = new Map(cells);
-  art.forEach((line, r) => [...line].forEach((ch, c) => { if (+ch) next.set(`${base + c},${r}`, +ch); }));
-  const all = [...next.keys()].map((k) => +k.split(",")[0]);
-  const lo = Math.min(...all), width = Math.max(...all) - lo + 1;
-  if (width > weeks - 2) { $("msg").textContent = say(["noRoom"]); $("msg").className = "ghead err"; return; }
-  const shift = Math.floor((weeks - width) / 2) - lo;
-  cells = new Map([...next].map(([k, v]) => { const [c, r] = k.split(",").map(Number); return [`${c + shift},${r}`, v]; }));
-  stamps.push(id);
-  fromText = false;
-  fault = null;
-  render();
-}
+// 预设：接在后面；放不下就提示，不改
 Object.entries(PRESETS).forEach(([id, art]) => {
   const b = document.createElement("button");
   b.className = "preset";
   b.title = b.ariaLabel = id;
-  const w = art[0].length;
-  b.innerHTML = `<svg viewBox="0 0 ${w * 4 - 1} 27">` + art.flatMap((line, r) =>
+  b.innerHTML = `<svg viewBox="0 0 ${art[0].length * 4 - 1} 27">` + art.flatMap((line, r) =>
     [...line].map((ch, c) => `<rect x="${c * 4}" y="${r * 4}" width="3" height="3" fill="${COLORS[+ch]}"/>`)).join("") + "</svg>";
-  b.onclick = () => stamp(id);
+  b.onclick = () => {
+    const width = strip(undefined, [...shapes, id]).rows[0].length, max = grid(year()).weeks - 2;
+    if (width > max) { $("msg").textContent = say(["noRoom"]); $("msg").className = "ghead err"; return; }
+    change("shape", () => shapes.push(id));
+  };
   $("presets").appendChild(b);
 });
 
-// 在格子上点 / 拖
-let painting = false;
+// 在格子上点 / 拖。按下时决定这一笔是画还是擦
+let stroke = null;   // { level, origin }
 function paintAt(x, y) {
   const el = document.elementFromPoint(x, y);
   const k = el && el.dataset && el.dataset.k;
-  if (!k) return;
-  const before = cells.get(k) || 0;
-  if (before === brush) return;
-  if (brush) cells.set(k, brush); else cells.delete(k);
-  fromText = false;
-  fault = null;
-  el.setAttribute("fill", COLORS[brush]);
+  if (!k || (current.get(k) || 0) === stroke.level) return;
+  const [c, r] = k.split(",").map(Number);
+  edits.set(`${c - stroke.origin},${r}`, stroke.level);
   render();
 }
-$("svg").addEventListener("pointerdown", (e) => { painting = true; paintAt(e.clientX, e.clientY); });
-window.addEventListener("pointermove", (e) => { if (painting) paintAt(e.clientX, e.clientY); });
-window.addEventListener("pointerup", () => { painting = false; });
+$("svg").addEventListener("pointerdown", (e) => {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const k = el && el.dataset && el.dataset.k;
+  if (!k) return;
+  change("stroke", () => {});
+  stroke = { level: (current.get(k) || 0) === brush ? 0 : brush, origin: compose().origin || 0 };
+  paintAt(e.clientX, e.clientY);
+});
+window.addEventListener("pointermove", (e) => { if (stroke) paintAt(e.clientX, e.clientY); });
+window.addEventListener("pointerup", () => { stroke = null; });
 
-$("year").addEventListener("input", () => (fromText ? fromTextInput() : render()));
-$("text").addEventListener("input", fromTextInput);
+$("year").addEventListener("input", () => change("year", () => {}));
+$("text").addEventListener("input", () => change("type", () => {}));
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z" && e.target.tagName !== "INPUT") {
+    e.preventDefault();
+    undo();
+  }
+});
 
 function applyLang() {
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   document.querySelectorAll("[data-t]").forEach((el) => { el.innerHTML = L()[el.dataset.t]; });
-  document.querySelectorAll(".sw").forEach((b) => { b.title = +b.dataset.lv ? L().level(b.dataset.lv) : L().eraser; b.setAttribute("aria-label", b.title); });
+  document.querySelectorAll(".sw").forEach((b) => { b.title = L().level(b.dataset.lv); b.setAttribute("aria-label", b.title); });
   $("lang").textContent = L().other;
   render();
 }
@@ -377,7 +409,7 @@ $("lang").onclick = () => {
   try { localStorage.setItem("lang", lang); } catch {}
   applyLang();
 };
-fromTextInput();
+prevText = $("text").value;
 applyLang();
 </script>
 </body>
