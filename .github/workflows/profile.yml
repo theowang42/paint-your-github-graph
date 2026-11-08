@@ -17,7 +17,7 @@ jobs:
     if: github.repository == format('{0}/{0}', github.repository_owner)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build README from profile.toml
         run: python3 scripts/build_readme.py
@@ -30,7 +30,7 @@ jobs:
           git diff --cached --quiet || (git commit -m "Update profile README" && git push)
 
       - name: Snake
-        uses: Platane/snk/svg-only@v3
+        uses: Platane/snk/svg-only@d8f6715049803e982ee5ff501b6b9b7d5deeb09b # v3
         with:
           github_user_name: ${{ github.repository_owner }}
           outputs: |
@@ -38,7 +38,7 @@ jobs:
             dist/github-snake-dark.svg?palette=github-dark
 
       - name: Publish snake to output branch
-        uses: crazy-max/ghaction-github-pages@v4
+        uses: crazy-max/ghaction-github-pages@df5cc2bfa78282ded844b354faee141f06b41865 # v4
         with:
           target_branch: output
           build_dir: dist
