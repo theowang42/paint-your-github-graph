@@ -1,6 +1,6 @@
 <div align="center">
 
-# gh-profile-kit
+# Paint your GitHub graph
 
 在 GitHub 格子的过去某一年，画字或像素画。
 
@@ -8,7 +8,7 @@
 
 <img src="docs/demo-zh.gif" width="720" alt="输入 BORN，加一颗爱心，再点几个点">
 
-### [打开画板 →](https://theowang42.github.io/gh-profile-kit/)
+### [打开画板 →](https://theowang42.github.io/paint-your-github-graph/)
 
 </div>
 

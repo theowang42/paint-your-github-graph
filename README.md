@@ -1,14 +1,14 @@
 <div align="center">
 
-# gh-profile-kit
+# Paint your GitHub graph
 
-Paint text or pixel art into a past year of your GitHub contribution graph.
+Text or pixel art, drawn into a past year of your contribution graph.
 
 **English** · [中文](README.zh-CN.md)
 
 <img src="docs/demo-en.gif" width="720" alt="Typing BORN, adding a heart, drawing a few dots">
 
-### [Open the painter →](https://theowang42.github.io/gh-profile-kit/)
+### [Open the painter →](https://theowang42.github.io/paint-your-github-graph/)
 
 </div>
 
