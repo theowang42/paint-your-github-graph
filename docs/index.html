@@ -46,6 +46,7 @@
   .legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 8px; }
   .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
   code { color: var(--fg); }
+  .warn { color: var(--fg); margin-top: 16px; }
   .repo { font-size: 40px; font-weight: 700; line-height: 1.2; word-break: break-all; }
   .go {
     display: inline-block; margin-top: 20px; padding: 12px 20px; font: 700 16px var(--font);
@@ -86,6 +87,8 @@
   <a class="go" id="go" target="_blank" rel="noopener" data-t="go"></a>
 
   <p class="small" style="margin-top:12px" data-t="after"></p>
+  <p class="small" id="years"></p>
+  <p class="small warn" data-t="fair"></p>
 </main>
 
 <script>
@@ -148,6 +151,8 @@ const STR = {
     badChar: (c) => `Unsupported character: ${c}`, tooWide: (w, m) => `Too wide: ${w} columns, max ${m}.`,
     badYear: (m) => `Year must be 1970–${m}.`, outside: () => "Some cells fall outside this year.",
     empty: () => "Empty.", noRoom: () => "No room left.", tooBig: () => "Too detailed to fit. Simplify the drawing.",
+    years: (y) => `Your profile's year list will then run from ${y} to now, empty years included.`,
+    fair: "Art, not a work record. Don't use it to fake activity on your profile.",
     undo: "Undo", level: (n) => `Level ${n}. Click a lit cell of this shade to erase it.`, other: "中文",
   },
   zh: {
@@ -162,6 +167,8 @@ const STR = {
     badChar: (c) => `不支持的字符：${c}`, tooWide: (w, m) => `太宽：${w} 列，最多 ${m} 列。`,
     badYear: (m) => `年份要在 1970–${m}。`, outside: () => "有格子不在这一年里。",
     empty: () => "还是空的。", noRoom: () => "放不下了。", tooBig: () => "太复杂，放不进去。简化一点。",
+    years: (y) => `之后主页的年份列表会从 ${y} 年一直列到今年，空的年份也会列出来。`,
+    fair: "这是彩蛋，不是工作记录。请勿用来伪造主页工作量。",
     undo: "撤销", level: (n) => `深浅 ${n}。点同样深浅的格子会擦掉它。`, other: "EN",
   },
 };
@@ -327,6 +334,7 @@ function render() {
   msg.className = error ? "ghead err" : "ghead";
   $("repo").textContent = error ? "—" : name;
   $("undo").disabled = !history.length;
+  $("years").textContent = error ? "" : L().years(y);
   go.setAttribute("aria-disabled", String(!!error));
   go.href = "https://github.com/new?" + new URLSearchParams({
     template_owner: TEMPLATE_OWNER, template_name: TEMPLATE_NAME,

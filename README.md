@@ -22,6 +22,8 @@ About a minute later, that year on your profile shows the drawing.
 
 ## Safe by design
 
+> **Art, not a work record.** Don't use this to fake activity on your profile. Each painted repo's README says so.
+
 - **Past years only.** 1970 to last year. Today's square is never touched.
 - **One painting, one repo.** Undo: delete the repo. The graph may take a while to update.
 - **Nothing to install, nothing to grant.** No login, no token, no server. It can only write to the repo it lives in.
