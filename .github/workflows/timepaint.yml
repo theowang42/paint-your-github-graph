@@ -1,0 +1,46 @@
+name: timepaint
+
+# Runs once, when a repo named <year>-<text> (e.g. 2002-born) is created from this template.
+# Draws: the pattern input > the pattern code in the repo description > the text in the repo name.
+# Undo: delete the repo.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # fallback: Actions → timepaint → Run workflow
+    inputs:
+      pattern:
+        description: "Pattern code (leave empty; it's in the repo description)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  paint:
+    # never in the profile repo (repo name = username)
+    if: github.repository != format('{0}/{0}', github.repository_owner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Paint
+        env:
+          REPO: ${{ github.event.repository.name }}
+          PATTERN: ${{ inputs.pattern }}
+          DESC: ${{ github.event.repository.description }}
+        run: |
+          # only painting repos, only once (the template itself and painted repos skip quietly)
+          if ! [[ "$REPO" =~ ^[0-9]{4}-[A-Za-z0-9-]+$ ]] || [ -f painting.log ]; then
+            echo "Nothing to paint."; exit 0
+          fi
+          set -eo pipefail
+          out="$RUNNER_TEMP/out.txt"   # outside the repo, so the working tree stays clean
+          trap '{ echo "\`\`\`"; cat "$out"; echo "\`\`\`"; } >> "$GITHUB_STEP_SUMMARY"' EXIT
+          # credit commits to you via your noreply email
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          args=(--repo "$REPO" --description "$DESC" --commit)
+          [ -n "$PATTERN" ] && args+=(--pattern "$PATTERN")
+          python3 scripts/paint.py "${args[@]}" 2>&1 | tee "$out"
+          git push

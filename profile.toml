@@ -1,0 +1,19 @@
+# Edit this file. Your profile README is rebuilt from it.
+
+name = "Your Name"
+tagline = "One line about you"
+
+about = [
+  "Learning: Python, Git",
+  "Building: my first open-source project",
+]
+
+skills = ["Python", "Git", "Linux"]
+
+# Snake eating your contribution graph. false = off.
+snake = true
+
+# Links. Delete the ones you don't need. Keep this section last.
+[links]
+Blog = "https://example.com"
+X = "https://x.com/yourname"
